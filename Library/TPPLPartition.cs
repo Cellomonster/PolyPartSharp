@@ -411,5 +411,284 @@ namespace PolyPartition
 
             return 1;
         }
+        
+        public static int ConvexPartition_HM(TPPLPoly poly, ref List<TPPLPoly> parts)
+		{
+			List<TPPLPoly> triangles = new List<TPPLPoly>();
+			int iter2;
+			TPPLPoly newpoly = new TPPLPoly(), poly2 = new TPPLPoly();
+			TPPLPoint d1, d2, p1, p2, p3;
+			int i11 = 0, i12 = 0, i21 = 0, i22 = 0, i13 = 0, i23 = 0, j, k;
+
+			//check if the poly is already convex
+			int numreflex = 0;
+			for (i11 = 0; i11 < poly.Count; i11++)
+			{
+				i12 = i11 == 0 ? poly.Count - 1 : i11 - 1;
+				i13 = i11 == poly.Count - 1 ? 0 : i11 + 1;
+
+				if (IsReflex(poly[i12], poly[i11], poly[i13]))
+				{
+					numreflex = 1;
+					break;
+				}
+			}
+
+			if (numreflex == 0)
+			{
+				parts.Add(poly);
+				return 1;
+			}
+
+			if (Triangulate_EC(poly, triangles) != 1)
+			{
+				return 0;
+			}
+
+			for (int iter1 = 0; iter1 < triangles.Count; iter1++)
+			{
+				TPPLPoly poly1 = triangles[iter1];
+				for (i11 = 0; i11 < poly1.Count; i11++)
+				{
+					d1 = poly1[i11];
+					i12 = (i11 + 1) % poly1.Count;
+					d2 = poly1[i12];
+
+					bool isdiagonal = false;
+					for (iter2 = iter1 + 1; iter2 < triangles.Count; iter2++)
+					{
+						poly2 = triangles[iter2];
+						for (i21 = 0; i21 < poly2.Count; i21++)
+						{
+							if (!FloatsAreEqual(d2.X, poly2[i21].X) || !FloatsAreEqual(d2.Y, poly2[i21].Y))
+							{
+								continue;
+							}
+
+							i22 = (i21 + 1) % poly2.Count;
+							if (!FloatsAreEqual(d1.X, poly2[i22].X) || !FloatsAreEqual(d1.Y, poly2[i22].Y))
+							{
+								continue;
+							}
+
+							isdiagonal = true;
+							break;
+						}
+
+						if (isdiagonal)
+						{
+							break;
+						}
+					}
+
+					if (!isdiagonal)
+					{
+						continue;
+					}
+
+					p2 = poly1[i11];
+					i13 = i11 == 0 ? poly1.Count - 1 : i11 - 1;
+					p1 = poly1[i13];
+					i23 = i22 == poly2.Count - 1 ? 0 : i22 + 1;
+					p3 = poly2[i23];
+
+					if (!IsConvex(p1, p2, p3))
+					{
+						continue;
+					}
+
+					p2 = poly1[i12];
+					i13 = i12 == poly1.Count - 1 ? 0 : i12 + 1;
+					p3 = poly1[i13];
+					i23 = i21 == 0 ? poly2.Count - 1 : i21 - 1;
+					p1 = poly2[i23];
+
+					if (!IsConvex(p1, p2, p3))
+					{
+						continue;
+					}
+
+					newpoly = new TPPLPoly(poly1.Count + poly2.Count - 2);
+					k = 0;
+					for (j = i12; j != i11; j = (j + 1) % (poly1.Count))
+					{
+						newpoly[k] = poly1[j];
+						k++;
+					}
+
+					for (j = i22; j != i21; j = (j + 1) % poly2.Count)
+					{
+						newpoly[k] = poly2[j];
+						k++;
+					}
+
+					triangles.RemoveAt(iter2);
+					poly1 = triangles[iter1] = newpoly;
+					i11 = -1;
+				}
+			}
+
+			foreach (TPPLPoly triangle in triangles)
+			{
+				parts.Add(triangle);
+			}
+
+			return 1;
+		}
+
+		public static int RemoveHoles(List<TPPLPoly> inPolys, ref List<TPPLPoly> outPolys)
+		{
+			List<TPPLPoly> polys;
+			outPolys.Clear();
+
+			TPPLPoint holePoint, polyPoint, bestPolyPoint = null;
+			TPPLPoint linep1, linep2;
+			TPPLPoint v1, v2;
+
+			TPPLPoly holeIter = null, polyIter = null, newPoly = null;
+			int holePointIndex = 0, polyPointIndex = 0, i2;
+
+			bool hasHoles, pointVisible, pointFound;
+
+			//check for trivial case (no holes)
+			hasHoles = false;
+			foreach (TPPLPoly iter in inPolys)
+			{
+				if (iter.Hole)
+				{
+					hasHoles = true;
+					break;
+				}
+			}
+
+			if (!hasHoles)
+			{
+				foreach (TPPLPoly poly in inPolys)
+				{
+					outPolys.Add(poly);
+				}
+
+				return 1;
+			}
+
+			polys = inPolys;
+
+			while (true)
+			{
+				hasHoles = false;
+				foreach (TPPLPoly iter in polys)
+				{
+					if (!iter.Hole) continue;
+
+					if (!hasHoles)
+					{
+						hasHoles = true;
+						holeIter = iter;
+						holePointIndex = 0;
+					}
+
+					for (int i = 0; i < iter.Count; i++)
+					{
+						if (iter[i].X > holeIter[holePointIndex].X)
+						{
+							holeIter = iter;
+							holePointIndex = i;
+						}
+					}
+				}
+
+				if (!hasHoles) break;
+
+				holePoint = holeIter[holePointIndex];
+
+				pointFound = false;
+				foreach (TPPLPoly iter in polys)
+				{
+					if (iter.Hole) continue;
+					for (int i = 0; i < iter.Count; i++)
+					{
+						if (iter[i].X <= holePoint.X) continue;
+						
+						if (!InCone(iter[(i + iter.Count - 1) % (iter.Count)],
+							iter[i],
+							iter[(i + 1) % (iter.Count)],
+							holePoint)) continue;
+						
+						polyPoint = iter[i];
+						
+						if (pointFound)
+						{
+							v1 = Normalize(polyPoint - holePoint);
+							v2 = Normalize(bestPolyPoint - holePoint);
+							if (v2.X > v1.X) continue;
+						}
+
+						pointVisible = true;
+						foreach (TPPLPoly iter2 in polys)
+						{
+							if (iter2.Hole) continue;
+							
+							for (i2 = 0; i2 < iter2.Count; i2++)
+							{
+								linep1 = iter2[i2];
+								linep2 = iter2[(i2 + 1) % (iter2.Count)];
+								if (Intersects(holePoint, polyPoint, linep1, linep2) == 1)
+								{
+									pointVisible = false;
+									break;
+								}
+							}
+
+							if (!pointVisible) break;
+						}
+
+						if (pointVisible)
+						{
+							pointFound = true;
+							bestPolyPoint = polyPoint;
+							polyIter = iter;
+							polyPointIndex = i;
+						}
+					}
+				}
+
+				if (!pointFound) return 0;
+
+				newPoly = new TPPLPoly(holeIter.Count + polyIter.Count + 2);
+				i2 = 0;
+				for (int i = 0; i <= polyPointIndex; i++)
+				{
+					newPoly[i2] = polyIter[i];
+					i2++;
+				}
+				for (int i = 0; i <= holeIter.Count; i++)
+				{
+					newPoly[i2] = holeIter[(i + holePointIndex) % holeIter.Count];
+					i2++;
+				}
+
+				for (int i = polyPointIndex; i < polyIter.Count; i++)
+				{
+					newPoly[i2] = polyIter[i];
+					i2++;
+				}
+
+				polys.Remove(holeIter);
+				polys.Remove(polyIter);
+				polys.Add(newPoly);
+			}
+
+			foreach (TPPLPoly poly in polys)
+			{
+				outPolys.Add(poly);
+			}
+
+			return 1;
+		}
+
+		private static bool FloatsAreEqual(float a, float b)
+		{
+			return Math.Abs(a - b) < 0.0001;
+		}
     }
 }
